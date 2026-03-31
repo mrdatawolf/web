@@ -6,6 +6,7 @@ import type {
 } from "@app/core/stores/deviceStore/types";
 import { createConnectionFromInput, testHttpReachable } from "@app/pages/Connections/utils";
 import { useAppStore, useDeviceStore, useMessageStore, useNodeDBStore } from "@core/stores";
+import { logEvent } from "@core/stores/logStore/index.ts";
 import { subscribeAll } from "@core/subscriptions.ts";
 import { randId } from "@core/utils/randId.ts";
 import { MeshDevice } from "@meshtastic/core";
@@ -167,6 +168,7 @@ export function useConnections() {
       const unsubConfigComplete = meshDevice.events.onConfigComplete.subscribe(
         (configCompleteId) => {
           console.log(`[useConnections] Configuration complete with ID: ${configCompleteId}`);
+          logEvent("info", "ConfigComplete", `id:${configCompleteId}`);
           device.setConnectionPhase("configured");
           updateStatus(id, "configured");
 
@@ -190,12 +192,14 @@ export function useConnections() {
       // Start configuration
       device.setConnectionPhase("configuring");
       updateStatus(id, "configuring");
+      logEvent("info", "Configure", "starting");
       console.log("[useConnections] Starting configuration");
 
       meshDevice
         .configure()
         .then(() => {
           console.log("[useConnections] Configuration complete, starting heartbeat");
+          logEvent("info", "Configure", "promise resolved — waiting for ConfigComplete event");
           // Send initial heartbeat after configure completes
           meshDevice
             .heartbeat()
@@ -217,6 +221,7 @@ export function useConnections() {
         })
         .catch((error) => {
           console.error(`[useConnections] Failed to configure:`, error);
+          logEvent("error", "ConfigureFailed", error.message ?? String(error));
           updateStatus(id, "error", error.message);
         });
 

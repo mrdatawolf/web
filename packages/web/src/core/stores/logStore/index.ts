@@ -24,6 +24,25 @@ export interface LogEntry {
   detail: string;
 }
 
+// Pending entries are batched here and flushed to Zustand in a single microtask,
+// so a burst of packets during configuration causes one re-render instead of N.
+let pendingEntries: LogEntry[] = [];
+let flushScheduled = false;
+
+function scheduledFlush() {
+  flushScheduled = false;
+  if (pendingEntries.length === 0) return;
+  const batch = pendingEntries;
+  pendingEntries = [];
+  useLogStore.setState((s) => {
+    const combined = [...s.entries, ...batch];
+    return {
+      entries: combined.length > LIVE_BUFFER_SIZE ? combined.slice(-LIVE_BUFFER_SIZE) : combined,
+      totalCount: s.totalCount + batch.length,
+    };
+  });
+}
+
 function makeEntryId(timestamp: number): string {
   // Zero-pad timestamp so lexicographic sort == chronological sort
   return `${String(timestamp).padStart(16, "0")}-${Math.random().toString(36).slice(2, 7)}`;
@@ -57,13 +76,12 @@ export const useLogStore = create<LogStore>((zustandSet, zustandGet) => ({
       detail,
     };
 
-    zustandSet((s) => {
-      const next = [...s.entries, entry];
-      return {
-        entries: next.length > LIVE_BUFFER_SIZE ? next.slice(-LIVE_BUFFER_SIZE) : next,
-        totalCount: s.totalCount + 1,
-      };
-    });
+    // Buffer entries and flush in a single microtask to avoid per-event re-renders
+    pendingEntries.push(entry);
+    if (!flushScheduled) {
+      flushScheduled = true;
+      queueMicrotask(scheduledFlush);
+    }
 
     // Persist to IDB asynchronously — fire and forget
     idbSet(entry.id, entry, logIdbStore).then(async () => {
