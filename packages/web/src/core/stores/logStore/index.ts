@@ -24,6 +24,11 @@ export interface LogEntry {
   detail: string;
 }
 
+// Suppress logging for this many ms after the module loads, so serial
+// configuration can complete before we start adding log-store pressure.
+const LOG_STARTUP_DELAY_MS = 10_000;
+const logStartTime = Date.now();
+
 // Pending entries are batched here and flushed to Zustand in a single microtask,
 // so a burst of packets during configuration causes one re-render instead of N.
 let pendingEntries: LogEntry[] = [];
@@ -126,5 +131,8 @@ export const useLogStore = create<LogStore>((zustandSet, zustandGet) => ({
 
 /** Call this from anywhere (non-React code) to append a log entry. */
 export function logEvent(level: LogLevel, event: string, detail: string): void {
+  if (Date.now() - logStartTime < LOG_STARTUP_DELAY_MS) {
+    return;
+  }
   useLogStore.getState().addEntry(level, event, detail);
 }
